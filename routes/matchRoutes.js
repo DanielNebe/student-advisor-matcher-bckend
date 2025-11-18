@@ -2,9 +2,9 @@
 const express = require("express");
 const router = express.Router();
 const { authenticateToken } = require('../authMiddleware');
-const Student = require('../models/Student');
-const Advisor = require('../models/Advisor');
-
+const path = require('path');
+const Student = require(path.join(__dirname, '../models/Student'));
+const Advisor = require(path.join(__dirname, '../models/Advisor'));
 // REMOVED: Seed advisors route (temporary - remove in production)
 
 // Batch matching route
