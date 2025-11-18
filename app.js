@@ -1,33 +1,27 @@
-// app.js - UPDATED
+// app.js - UPDATED with correct CORS
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const matchRoutes = require("./routes/matchRoutes");
 const authRoutes = require("./authRoutes");
-const advisorRoutes = require("./routes/advisorRoutes"); // ADD THIS
+const advisorRoutes = require("./routes/advisorRoutes");
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
+
+// ==================== CORS CONFIGURATION - UPDATED ====================
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      "http://localhost:3000",
-      "https://your-frontend-app.vercel.app" // ← YOUR ACTUAL FRONTEND URL
-    ];
-    
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    
-    return callback(null, true);
-  },
-  credentials: true
+  origin: [
+    "http://localhost:3000",
+    "https://student-advisor-matcher-frontend.vercel.app", // ← ADD YOUR FRONTEND DOMAIN HERE
+    "https://student-advisor-matcher-frontend-git-main-yourusername.vercel.app", // ← ALSO ADD THIS PATTERN
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`📨 ${new Date().toISOString()} ${req.method} ${req.url}`);
@@ -62,7 +56,7 @@ app.use("/api/advisors", authRoutes);
 // 🔍 Matching routes
 app.use("/api/match", matchRoutes);
 
-// 👨‍🏫 ADVISOR ROUTES - ADD THIS
+// 👨‍🏫 ADVISOR ROUTES
 app.use("/api/advisors", advisorRoutes);
 
 // Health check endpoint
@@ -83,13 +77,6 @@ app.get("/health", (req, res) => {
       advisorDashboard: "GET /api/advisors/dashboard"
     },
   });
-});
-
-// Get port from environment variable or use 5000
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
 });
 
 module.exports = app;
