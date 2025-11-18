@@ -1,60 +1,11 @@
-// routes/matchRoutes.js - UPDATED VERSION
+// routes/matchRoutes.js - FIXED FOR PRODUCTION
 const express = require("express");
 const router = express.Router();
 const { authenticateToken } = require('../authMiddleware');
 const Student = require('../models/Student');
 const Advisor = require('../models/Advisor');
 
-// NEW: Seed advisors route (temporary - remove in production)
-router.post('/seed-advisors', async (req, res) => {
-  try {
-    // Clear existing advisors
-    await Advisor.deleteMany({}); 
-    
-    // Create sample advisors
-    const advisors = await Advisor.insertMany([
-      {
-        name: "Dr. Sarah Johnson",
-        email: "sarah.johnson@university.edu",
-        department: "Computer Science",
-        researchAreas: ["Artificial Intelligence", "Machine Learning", "Data Science"],
-        availableSlots: 3,
-        maxStudents: 5
-      },
-      {
-        name: "Prof. Michael Chen",
-        email: "michael.chen@university.edu", 
-        department: "Software Engineering",
-        researchAreas: ["Software Engineering", "Web Development", "Cloud Computing"],
-        availableSlots: 2,
-        maxStudents: 4
-      },
-      {
-        name: "Dr. Emily Davis",
-        email: "emily.davis@university.edu",
-        department: "Data Science",
-        researchAreas: ["Data Science", "Machine Learning", "Natural Language Processing"],
-        availableSlots: 1,
-        maxStudents: 3
-      }
-    ]);
-    
-    console.log("✅ Advisors seeded successfully!");
-    res.json({ 
-      success: true,
-      message: "Advisors seeded successfully!", 
-      advisors: advisors 
-    });
-    
-  } catch (error) {
-    console.error('❌ Error seeding advisors:', error);
-    res.status(500).json({ 
-      success: false,
-      message: "Error seeding advisors", 
-      error: error.message 
-    });
-  }
-});
+// REMOVED: Seed advisors route (temporary - remove in production)
 
 // Batch matching route
 router.get("/run", async (req, res) => {
@@ -65,6 +16,35 @@ router.get("/run", async (req, res) => {
     if (students.length === 0 || advisors.length === 0) {
       return res.status(404).json({ message: "Students or advisors not found in database" });
     }
+
+    // FIX: Add this simple matching function
+    const matchStudentsToAdvisors = (students, advisors) => {
+      const results = [];
+      
+      students.forEach(student => {
+        if (!student.hasMatched) {
+          // Find first available advisor with matching interests
+          const matchedAdvisor = advisors.find(advisor => 
+            advisor.availableSlots > 0 && 
+            advisor.researchAreas.some(area => 
+              student.researchInterests.includes(area)
+            )
+          );
+          
+          if (matchedAdvisor) {
+            results.push({
+              student: student.name || student.registrationNumber,
+              advisor: matchedAdvisor.name,
+              sharedInterests: matchedAdvisor.researchAreas.filter(area => 
+                student.researchInterests.includes(area)
+              )
+            });
+          }
+        }
+      });
+      
+      return results;
+    };
 
     const results = matchStudentsToAdvisors(students, advisors);
     res.status(200).json(results);
@@ -243,7 +223,7 @@ router.get('/student/profile', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Enhanced student dashboard with statistics
+// Enhanced student dashboard with statistics
 router.get('/student/dashboard', authenticateToken, async (req, res) => {
   try {
     console.log("📊 Dashboard endpoint hit for user:", req.user.userId);
