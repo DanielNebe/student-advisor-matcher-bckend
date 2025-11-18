@@ -1,10 +1,11 @@
-// server.js
+// server.js - CLEANED UP
 const app = require("./app");
 
-
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
 
 // Add this to your server.js file (temporary - remove after seeding)
 app.get('/seed-now', async (req, res) => {
@@ -13,12 +14,6 @@ app.get('/seed-now', async (req, res) => {
     
     // Clear existing advisors
     await Advisor.deleteMany({}); 
-
-    // In server.js, add this with your other route imports
-const advisorRoutes = require('./routes/advisorRoutes');
-
-// Add this with your other app.use routes
-app.use('/api/advisors', advisorRoutes);
     
     // Create sample advisors
     const advisors = await Advisor.insertMany([
