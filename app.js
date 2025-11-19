@@ -303,10 +303,9 @@ app.get("/api/students/dashboard", async (req, res) => {
     });
   }
 });
-
 // ==================== ADVISOR ROUTES ====================
 
-// Complete Advisor Profile 
+// Complete Advisor Profile
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
@@ -344,6 +343,26 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
       advisor: result.value,
       message: "Advisor profile completed successfully!"
     });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Get Advisor Profile - CHANGED FROM GET TO POST
+app.post("/api/advisors/profile", async (req, res) => {
+  try {
+    const userId = req.headers.user_id || "mock_user_id";
+    
+    // Use direct MongoDB find instead of mongoose
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
     if (!advisorProfile) {
       return res.status(404).json({
         success: false,
@@ -351,10 +370,17 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
       });
     }
 
+    // Also get user info
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
     res.json({
       success: true,
-      advisor: advisorProfile,
-      message: "Advisor profile completed successfully!"
+      advisor: {
+        ...advisorProfile,
+        user: user ? { name: user.name, identifier: user.identifier } : null
+      }
     });
   } catch (error) {
     res.status(500).json({ 
@@ -364,7 +390,80 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
   }
 });
 
-// Add this route to debug - put it before your other routes
+// Advisor Dashboard
+app.get("/api/advisors/dashboard", async (req, res) => {
+  try {
+    const userId = req.headers.user_id || "mock_user_id";
+    
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
+    // Get user info
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    // Get advisor's matches and students
+    const matches = await db.collection('matches').find({ 
+      advisorId: advisorProfile._id 
+    }).toArray();
+
+    // Get student details for each match
+    const students = await Promise.all(matches.map(async (match) => {
+      const student = await db.collection('students').findOne({ 
+        _id: match.studentId 
+      });
+      const studentUser = student ? await db.collection('users').findOne({ 
+        _id: student.userId 
+      }) : null;
+      
+      return {
+        _id: student?._id,
+        name: studentUser?.name,
+        identifier: studentUser?.identifier,
+        researchInterests: student?.researchInterests,
+        yearLevel: student?.yearLevel,
+        matchDate: match.timestamp,
+        status: match.status
+      };
+    }));
+
+    res.json({
+      profile: {
+        name: user?.name,
+        researchAreas: advisorProfile.expertiseAreas,
+        completedProfile: advisorProfile.completedProfile,
+        department: advisorProfile.department,
+        bio: advisorProfile.bio
+      },
+      statistics: {
+        totalStudents: students.length,
+        availableSlots: Math.max(0, advisorProfile.maxStudents - students.length),
+        maxStudents: advisorProfile.maxStudents,
+        utilizationRate: advisorProfile.maxStudents > 0 ? 
+          Math.round((students.length / advisorProfile.maxStudents) * 100) : 0
+      },
+      students: students
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Debug route to check advisors in database
 app.get("/api/debug-advisors", async (req, res) => {
   try {
     const db = mongoose.connection.db;
