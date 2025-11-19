@@ -21,7 +21,7 @@ mongoose.connect(process.env.MONGO_URI)
 // Import YOUR models
 const User = require('./models/User');
 const Student = require('./models/Student');
-
+const Advisor = require('./models/Advisor');
 const Match = require('./models/Match');
 
 // Basic routes
