@@ -2,6 +2,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const bcrypt = require('bcrypt');
 require("dotenv").config();
 
 const app = express();
@@ -17,7 +18,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => console.error("❌ MongoDB Connection Failed:", err));
 
-// Import models
+// Import YOUR models
 const User = require('./models/User');
 const Student = require('./models/Student');
 const Advisor = require('./models/Advisor');
@@ -51,75 +52,76 @@ app.get("/test", (req, res) => {
 
 // ==================== AUTHENTICATION ROUTES ====================
 
-// User Registration
+// User Registration - USING YOUR MODELS
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { name, identifier, password, role, email } = req.body;
-    console.log("Registration attempt:", { name, identifier, role, email });
+    const { name, identifier, password, role } = req.body;
+    console.log("Registration attempt:", { name, identifier, role });
     
     // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [
-        { email: email || `${identifier}@university.edu` },
-        { matric_no: role === 'student' ? identifier : null },
-        { staff_id: role === 'advisor' ? identifier : null }
-      ].filter(condition => condition !== null)
-    });
-    
+    const existingUser = await User.findOne({ identifier });
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
-        message: "User already exists with this email or identifier" 
+        message: "User already exists with this identifier" 
       });
     }
 
-    // Create user based on role
-    let userData = {
+    // Create user (password auto-hashed by your model's pre-save hook)
+    const newUser = new User({
       name,
-      email: email || `${identifier}@university.edu`,
-      password, // In production, hash this with bcrypt!
+      identifier,
+      password, // This will be auto-hashed by your pre-save hook
       role
-    };
-
-    // Add identifier based on role
-    if (role === 'student') {
-      userData.matric_no = identifier;
-    } else if (role === 'advisor') {
-      userData.staff_id = identifier;
-    }
-
-    const newUser = new User(userData);
+    });
+    
     await newUser.save();
 
-    // Create role-specific profile
+    // Create role-specific profile using YOUR models
     if (role === 'student') {
       const studentProfile = new Student({
-        user_id: newUser._id,
-        department: "To be completed",
-        academic_level: "To be completed"
+        userId: newUser._id,
+        researchInterests: [],
+        careerGoals: [],
+        preferredAdvisorTypes: [],
+        yearLevel: "",
+        completedProfile: false,
+        hasMatched: false
       });
       await studentProfile.save();
+      console.log("✅ Student profile created");
+      
     } else if (role === 'advisor') {
       const advisorProfile = new Advisor({
-        user_id: newUser._id,
-        department: "To be completed"
+        userId: newUser._id,
+        name: name,
+        email: identifier, // Using identifier as email
+        staffNumber: identifier,
+        researchInterests: [],
+        expertiseAreas: [],
+        maxStudents: 5,
+        availableSlots: 5,
+        bio: "",
+        completedProfile: false,
+        matchedStudents: []
       });
       await advisorProfile.save();
+      console.log("✅ Advisor profile created");
     }
 
+    // Return success
     res.json({
       success: true,
-      token: "jwt-token-" + newUser._id, // Use proper JWT in production
-      user: {
-        id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        identifier: identifier
+      token: "jwt-token-" + newUser._id,
+      user: { 
+        name, 
+        identifier, 
+        role,
+        id: newUser._id
       },
       message: "Registration successful! Please complete your profile."
     });
-
+    
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ 
@@ -129,21 +131,15 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// User Login
+// User Login - USING YOUR MODELS
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { identifier, password, role } = req.body;
     console.log("Login attempt:", { identifier, role });
     
-    // Find user by identifier (matric_no, staff_id, or email)
-    const user = await User.findOne({
-      $or: [
-        { matric_no: identifier },
-        { staff_id: identifier },
-        { email: identifier }
-      ]
-    });
-
+    // Find user by identifier
+    const user = await User.findOne({ identifier });
+    
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -151,17 +147,18 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // Check password (in production, use bcrypt.compare)
-    if (password === user.password) {
+    // Check password using bcrypt (from your model)
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (isPasswordValid && user.role === role) {
       res.json({
         success: true,
         token: "jwt-token-" + user._id,
         user: {
           id: user._id,
           name: user.name,
-          email: user.email,
-          role: user.role,
-          identifier: user.matric_no || user.staff_id
+          identifier: user.identifier,
+          role: user.role
         },
         message: "Login successful!"
       });
@@ -181,26 +178,32 @@ app.post("/api/auth/login", async (req, res) => {
 
 // ==================== STUDENT ROUTES ====================
 
-// Complete Student Profile
+// Complete Student Profile - USING YOUR MODELS
 app.post("/api/students/complete-profile", async (req, res) => {
   try {
-    const { department, academic_level, career_goals, research_interests, preferred_adviser_attributes } = req.body;
+    const { researchInterests, careerGoals, yearLevel, preferredAdvisorTypes } = req.body;
     
-    // In production, get user_id from JWT token
-    const user_id = req.headers.user_id || "mock_user_id"; // Replace with actual token verification
+    // In production, get user ID from JWT token
+    const userId = req.headers.user_id || "mock_user_id";
     
     const studentProfile = await Student.findOneAndUpdate(
-      { user_id: user_id },
+      { userId: userId },
       {
-        department,
-        academic_level,
-        career_goals,
-        research_interests,
-        preferred_adviser_attributes,
-        completed_profile: true
+        researchInterests,
+        careerGoals,
+        yearLevel,
+        preferredAdvisorTypes,
+        completedProfile: true
       },
-      { new: true, upsert: true }
+      { new: true }
     );
+
+    if (!studentProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Student profile not found"
+      });
+    }
 
     res.json({
       success: true,
@@ -218,10 +221,10 @@ app.post("/api/students/complete-profile", async (req, res) => {
 // Get Student Profile
 app.get("/api/students/profile", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const studentProfile = await Student.findOne({ user_id: user_id })
-      .populate('user_id', 'name email matric_no');
+    const studentProfile = await Student.findOne({ userId: userId })
+      .populate('userId', 'name identifier');
     
     if (!studentProfile) {
       return res.status(404).json({
@@ -245,10 +248,10 @@ app.get("/api/students/profile", async (req, res) => {
 // Student Dashboard
 app.get("/api/students/dashboard", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const studentProfile = await Student.findOne({ user_id: user_id })
-      .populate('user_id', 'name email');
+    const studentProfile = await Student.findOne({ userId: userId })
+      .populate('userId', 'name');
     
     if (!studentProfile) {
       return res.status(404).json({
@@ -258,32 +261,31 @@ app.get("/api/students/dashboard", async (req, res) => {
     }
 
     // Check if student has matches
-    const matches = await Match.find({ student_id: studentProfile._id })
-      .populate('advisor_id')
-      .populate('advisor_id.user_id', 'name email');
+    const matches = await Match.find({ studentId: studentProfile._id })
+      .populate('advisorId')
+      .populate('advisorId.userId', 'name');
 
     res.json({
       profile: {
-        name: studentProfile.user_id.name,
-        completed_profile: studentProfile.completed_profile,
-        research_interests: studentProfile.research_interests,
-        career_goals: studentProfile.career_goals,
-        academic_level: studentProfile.academic_level,
-        department: studentProfile.department
+        name: studentProfile.userId.name,
+        completedProfile: studentProfile.completedProfile,
+        researchInterests: studentProfile.researchInterests,
+        careerGoals: studentProfile.careerGoals,
+        yearLevel: studentProfile.yearLevel
       },
-      match_status: {
-        has_matched: matches.length > 0,
-        match_date: matches.length > 0 ? matches[0].timestamp : null,
-        matched_advisor: matches.length > 0 ? {
-          name: matches[0].advisor_id.user_id.name,
-          research_areas: matches[0].advisor_id.expertise_areas,
-          email: matches[0].advisor_id.user_id.email,
-          department: matches[0].advisor_id.department
+      matchStatus: {
+        hasMatched: matches.length > 0,
+        matchDate: matches.length > 0 ? matches[0].timestamp : null,
+        matchedAdvisor: matches.length > 0 ? {
+          name: matches[0].advisorId.userId.name,
+          researchAreas: matches[0].advisorId.expertiseAreas,
+          email: matches[0].advisorId.email,
+          department: matches[0].advisorId.department
         } : null
       },
       statistics: {
-        total_matches: matches.length,
-        pending_matches: matches.filter(m => m.status === 'pending').length
+        totalMatches: matches.length,
+        pendingMatches: matches.filter(m => m.status === 'pending').length
       }
     });
   } catch (error) {
@@ -296,25 +298,32 @@ app.get("/api/students/dashboard", async (req, res) => {
 
 // ==================== ADVISOR ROUTES ====================
 
-// Complete Advisor Profile
+// Complete Advisor Profile - USING YOUR MODELS
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
-    const { department, expertise_areas, max_advisee_capacity, advising_style, bio } = req.body;
+    const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
     const advisorProfile = await Advisor.findOneAndUpdate(
-      { user_id: user_id },
+      { userId: userId },
       {
-        department,
-        expertise_areas,
-        max_advisee_capacity,
-        advising_style,
+        researchInterests,
+        expertiseAreas,
+        maxStudents,
+        availableSlots,
         bio,
-        completed_profile: true
+        completedProfile: true
       },
-      { new: true, upsert: true }
+      { new: true }
     );
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
 
     res.json({
       success: true,
@@ -332,10 +341,10 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
 // Get Advisor Profile
 app.get("/api/advisors/profile", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const advisorProfile = await Advisor.findOne({ user_id: user_id })
-      .populate('user_id', 'name email staff_id');
+    const advisorProfile = await Advisor.findOne({ userId: userId })
+      .populate('userId', 'name identifier');
     
     if (!advisorProfile) {
       return res.status(404).json({
@@ -359,10 +368,10 @@ app.get("/api/advisors/profile", async (req, res) => {
 // Advisor Dashboard
 app.get("/api/advisors/dashboard", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const advisorProfile = await Advisor.findOne({ user_id: user_id })
-      .populate('user_id', 'name email');
+    const advisorProfile = await Advisor.findOne({ userId: userId })
+      .populate('userId', 'name');
     
     if (!advisorProfile) {
       return res.status(404).json({
@@ -372,35 +381,34 @@ app.get("/api/advisors/dashboard", async (req, res) => {
     }
 
     // Get advisor's matches and students
-    const matches = await Match.find({ advisor_id: advisorProfile._id })
-      .populate('student_id')
-      .populate('student_id.user_id', 'name email matric_no');
+    const matches = await Match.find({ advisorId: advisorProfile._id })
+      .populate('studentId')
+      .populate('studentId.userId', 'name identifier');
 
     const students = matches.map(match => ({
-      _id: match.student_id._id,
-      name: match.student_id.user_id.name,
-      email: match.student_id.user_id.email,
-      matric_no: match.student_id.user_id.matric_no,
-      research_interests: match.student_id.research_interests,
-      academic_level: match.student_id.academic_level,
-      match_date: match.timestamp,
+      _id: match.studentId._id,
+      name: match.studentId.userId.name,
+      identifier: match.studentId.userId.identifier,
+      researchInterests: match.studentId.researchInterests,
+      yearLevel: match.studentId.yearLevel,
+      matchDate: match.timestamp,
       status: match.status
     }));
 
     res.json({
       profile: {
-        name: advisorProfile.user_id.name,
-        research_areas: advisorProfile.expertise_areas,
-        completed_profile: advisorProfile.completed_profile,
+        name: advisorProfile.userId.name,
+        researchAreas: advisorProfile.expertiseAreas,
+        completedProfile: advisorProfile.completedProfile,
         department: advisorProfile.department,
         bio: advisorProfile.bio
       },
       statistics: {
-        total_students: students.length,
-        available_slots: Math.max(0, advisorProfile.max_advisee_capacity - students.length),
-        max_students: advisorProfile.max_advisee_capacity,
-        utilization_rate: advisorProfile.max_advisee_capacity > 0 ? 
-          Math.round((students.length / advisorProfile.max_advisee_capacity) * 100) : 0
+        totalStudents: students.length,
+        availableSlots: Math.max(0, advisorProfile.maxStudents - students.length),
+        maxStudents: advisorProfile.maxStudents,
+        utilizationRate: advisorProfile.maxStudents > 0 ? 
+          Math.round((students.length / advisorProfile.maxStudents) * 100) : 0
       },
       students: students
     });
@@ -417,11 +425,11 @@ app.get("/api/advisors/dashboard", async (req, res) => {
 // Find Match for Student
 app.post("/api/match/find-match", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
     // Get student profile
-    const student = await Student.findOne({ user_id: user_id });
-    if (!student || !student.completed_profile) {
+    const student = await Student.findOne({ userId: userId });
+    if (!student || !student.completedProfile) {
       return res.status(400).json({
         success: false,
         message: "Please complete your profile first"
@@ -430,10 +438,10 @@ app.post("/api/match/find-match", async (req, res) => {
 
     // Find compatible advisors
     const advisors = await Advisor.find({
-      completed_profile: true,
-      expertise_areas: { $in: student.research_interests },
-      current_advisees: { $lt: '$max_advisee_capacity' }
-    }).populate('user_id', 'name email');
+      completedProfile: true,
+      expertiseAreas: { $in: student.researchInterests },
+      availableSlots: { $gt: 0 }
+    }).populate('userId', 'name');
 
     if (advisors.length === 0) {
       return res.json({
@@ -441,8 +449,8 @@ app.post("/api/match/find-match", async (req, res) => {
         message: "No compatible advisors found at this time",
         reason: "No advisors match your research interests or all are at full capacity",
         details: {
-          total_advisors: 0,
-          your_interests: student.research_interests
+          totalAdvisors: 0,
+          yourInterests: student.researchInterests
         }
       });
     }
@@ -452,36 +460,43 @@ app.post("/api/match/find-match", async (req, res) => {
 
     // Create match record
     const newMatch = new Match({
-      student_id: student._id,
-      advisor_id: matchedAdvisor._id,
-      match_reason: `Shared interests: ${student.research_interests.filter(interest => 
-        matchedAdvisor.expertise_areas.includes(interest)
+      studentId: student._id,
+      advisorId: matchedAdvisor._id,
+      matchReason: `Shared interests: ${student.researchInterests.filter(interest => 
+        matchedAdvisor.expertiseAreas.includes(interest)
       ).join(', ')}`,
-      match_score: 85, // Calculate based on shared interests
+      matchScore: 85, // Calculate based on shared interests
       status: 'pending'
     });
     await newMatch.save();
 
-    // Update advisor's current advisee count
+    // Update advisor's available slots
     await Advisor.findByIdAndUpdate(matchedAdvisor._id, {
-      $inc: { current_advisees: 1 }
+      $inc: { availableSlots: -1 }
+    });
+
+    // Update student's match status
+    await Student.findByIdAndUpdate(student._id, {
+      hasMatched: true,
+      matchedAdvisor: matchedAdvisor._id,
+      matchDate: new Date()
     });
 
     res.json({
       success: true,
       message: "Match found successfully!",
-      matched_advisor: {
-        name: matchedAdvisor.user_id.name,
-        research_areas: matchedAdvisor.expertise_areas,
-        email: matchedAdvisor.user_id.email,
+      matchedAdvisor: {
+        name: matchedAdvisor.userId.name,
+        researchAreas: matchedAdvisor.expertiseAreas,
+        email: matchedAdvisor.email,
         department: matchedAdvisor.department,
         bio: matchedAdvisor.bio
       },
-      match_details: {
-        shared_interests: student.research_interests.filter(interest => 
-          matchedAdvisor.expertise_areas.includes(interest)
+      matchDetails: {
+        sharedInterests: student.researchInterests.filter(interest => 
+          matchedAdvisor.expertiseAreas.includes(interest)
         ),
-        match_score: 85
+        matchScore: 85
       }
     });
   } catch (error) {
@@ -495,20 +510,20 @@ app.post("/api/match/find-match", async (req, res) => {
 // Get All Advisors (for student browsing)
 app.get("/api/advisors", async (req, res) => {
   try {
-    const advisors = await Advisor.find({ completed_profile: true })
-      .populate('user_id', 'name email')
-      .select('expertise_areas department max_advisee_capacity current_advisees bio');
+    const advisors = await Advisor.find({ completedProfile: true })
+      .populate('userId', 'name')
+      .select('expertiseAreas department maxStudents availableSlots bio');
 
     res.json({
       success: true,
       advisors: advisors.map(advisor => ({
-        name: advisor.user_id.name,
-        research_areas: advisor.expertise_areas,
+        name: advisor.userId.name,
+        researchAreas: advisor.expertiseAreas,
         department: advisor.department,
-        available_slots: Math.max(0, advisor.max_advisee_capacity - advisor.current_advisees),
-        max_capacity: advisor.max_advisee_capacity,
+        availableSlots: advisor.availableSlots,
+        maxCapacity: advisor.maxStudents,
         bio: advisor.bio,
-        completed_profile: advisor.completed_profile
+        completedProfile: advisor.completedProfile
       }))
     });
   } catch (error) {
@@ -526,26 +541,26 @@ app.post("/api/match/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel } = req.body;
     
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
     const studentProfile = await Student.findOneAndUpdate(
-      { user_id: user_id },
+      { userId: userId },
       {
-        research_interests: researchInterests,
-        career_goals: careerGoals,
-        academic_level: yearLevel,
-        completed_profile: true
+        researchInterests: researchInterests,
+        careerGoals: careerGoals,
+        yearLevel: yearLevel,
+        completedProfile: true
       },
-      { new: true, upsert: true }
+      { new: true }
     );
 
     res.json({
       success: true,
       student: {
-        researchInterests: studentProfile.research_interests,
-        careerGoals: studentProfile.career_goals,
-        yearLevel: studentProfile.academic_level,
-        completedProfile: studentProfile.completed_profile
+        researchInterests: studentProfile.researchInterests,
+        careerGoals: studentProfile.careerGoals,
+        yearLevel: studentProfile.yearLevel,
+        completedProfile: studentProfile.completedProfile
       },
       message: "Profile completed successfully!"
     });
@@ -560,9 +575,9 @@ app.post("/api/match/complete-profile", async (req, res) => {
 // Legacy student profile route
 app.get("/api/match/student/profile", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const studentProfile = await Student.findOne({ user_id: user_id });
+    const studentProfile = await Student.findOne({ userId: userId });
     
     if (!studentProfile) {
       return res.json({
@@ -574,10 +589,10 @@ app.get("/api/match/student/profile", async (req, res) => {
     }
 
     res.json({
-      researchInterests: studentProfile.research_interests || [],
-      careerGoals: studentProfile.career_goals || [],
-      yearLevel: studentProfile.academic_level || "",
-      completedProfile: studentProfile.completed_profile || false
+      researchInterests: studentProfile.researchInterests || [],
+      careerGoals: studentProfile.careerGoals || [],
+      yearLevel: studentProfile.yearLevel || "",
+      completedProfile: studentProfile.completedProfile || false
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -587,30 +602,30 @@ app.get("/api/match/student/profile", async (req, res) => {
 // Legacy student dashboard route
 app.get("/api/match/student/dashboard", async (req, res) => {
   try {
-    const user_id = req.headers.user_id || "mock_user_id";
+    const userId = req.headers.user_id || "mock_user_id";
     
-    const studentProfile = await Student.findOne({ user_id: user_id })
-      .populate('user_id', 'name');
+    const studentProfile = await Student.findOne({ userId: userId })
+      .populate('userId', 'name');
     
     const matches = await Match.find({ 
-      student_id: studentProfile?._id 
-    }).populate('advisor_id');
+      studentId: studentProfile?._id 
+    }).populate('advisorId');
 
     res.json({
       profile: {
-        completedProfile: studentProfile?.completed_profile || false,
-        researchInterests: studentProfile?.research_interests || [],
-        careerGoals: studentProfile?.career_goals || [],
-        yearLevel: studentProfile?.academic_level || ""
+        completedProfile: studentProfile?.completedProfile || false,
+        researchInterests: studentProfile?.researchInterests || [],
+        careerGoals: studentProfile?.careerGoals || [],
+        yearLevel: studentProfile?.yearLevel || ""
       },
       matchStatus: {
         hasMatched: matches.length > 0,
         matchDate: matches.length > 0 ? matches[0].timestamp : null,
         matchedAdvisor: matches.length > 0 ? {
-          name: matches[0].advisor_id.user_id?.name || "Advisor",
-          researchAreas: matches[0].advisor_id.expertise_areas || [],
-          email: matches[0].advisor_id.user_id?.email || "",
-          department: matches[0].advisor_id.department || ""
+          name: matches[0].advisorId.userId?.name || "Advisor",
+          researchAreas: matches[0].advisorId.expertiseAreas || [],
+          email: matches[0].advisorId.email || "",
+          department: matches[0].advisorId.department || ""
         } : null
       }
     });
