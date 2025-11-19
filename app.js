@@ -364,6 +364,23 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
   }
 });
 
+// Add this route to debug - put it before your other routes
+app.get("/api/debug-advisors", async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const advisors = await db.collection('advisors').find().toArray();
+    const users = await db.collection('users').find().toArray();
+    
+    res.json({
+      advisors: advisors,
+      users: users,
+      totalAdvisors: advisors.length,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
 // Get Advisor Profile
 app.get("/api/advisors/profile", async (req, res) => {
   try {
