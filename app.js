@@ -21,8 +21,8 @@ mongoose.connect(process.env.MONGO_URI)
 // Import YOUR models
 const User = require('./models/User');
 const Student = require('./models/Student');
-const Advisor = require('./models/Advisor');
-const Match = require('./models/Match');
+// Remove Advisor import - we'll use direct MongoDB
+// Remove Match import - we'll use direct MongoDB
 
 // Basic routes
 app.get("/", (req, res) => {
@@ -52,14 +52,16 @@ app.get("/test", (req, res) => {
 
 // ==================== AUTHENTICATION ROUTES ====================
 
-// User Registration - USING YOUR MODELS
+// User Registration - USING DIRECT MONGODB
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, identifier, password, role } = req.body;
     console.log("Registration attempt:", { name, identifier, role });
     
+    const db = mongoose.connection.db;
+    
     // Check if user already exists
-    const existingUser = await User.findOne({ identifier });
+    const existingUser = await db.collection('users').findOne({ identifier });
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
@@ -67,56 +69,59 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    // Create user (password auto-hashed by your model's pre-save hook)
-    const newUser = new User({
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const userData = {
       name,
       identifier,
-      password, // This will be auto-hashed by your pre-save hook
-      role
-    });
-    
-    await newUser.save();
+      password: hashedPassword,
+      role,
+      createdAt: new Date()
+    };
 
-    // Create role-specific profile using YOUR models
+    const userResult = await db.collection('users').insertOne(userData);
+    const newUser = userResult.ops ? userResult.ops[0] : { _id: userResult.insertedId };
+    console.log("✅ User created:", newUser._id);
+
+    // Create role-specific profile
     if (role === 'student') {
-      const studentProfile = new Student({
+      const studentData = {
         userId: newUser._id,
         researchInterests: [],
         careerGoals: [],
         preferredAdvisorTypes: [],
         yearLevel: "",
         completedProfile: false,
-        hasMatched: false
-      });
-      await studentProfile.save();
+        hasMatched: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      await db.collection('students').insertOne(studentData);
       console.log("✅ Student profile created");
+      
+    } else if (role === 'advisor') {
+      const advisorData = {
+        userId: newUser._id,
+        name: name,
+        email: identifier,
+        staffNumber: identifier,
+        researchInterests: [],
+        expertiseAreas: [],
+        department: "Computer Science",
+        maxStudents: 5,
+        availableSlots: 5,
+        bio: "",
+        completedProfile: false,
+        matchedStudents: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      await db.collection('advisors').insertOne(advisorData);
+      console.log("✅ Advisor profile created");
+    }
 
-      } else if (role === 'advisor') {
-  // Get the database connection
-  const db = mongoose.connection.db;
-  
-  // Create advisor document directly
-  const advisorData = {
-    userId: newUser._id,
-    name: name,
-    email: identifier,
-    staffNumber: identifier,
-    researchInterests: [],
-    expertiseAreas: [],
-    department: "Computer Science",
-    maxStudents: 5,
-    availableSlots: 5,
-    bio: "",
-    completedProfile: false,
-    matchedStudents: [],
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
-  
-  // Insert directly into advisors collection
-  await db.collection('advisors').insertOne(advisorData);
-  console.log("✅ Advisor profile created (direct insert)");
-}
     // Return success
     res.json({
       success: true,
@@ -145,8 +150,10 @@ app.post("/api/auth/login", async (req, res) => {
     const { identifier, password, role } = req.body;
     console.log("Login attempt:", { identifier, role });
     
+    const db = mongoose.connection.db;
+    
     // Find user by identifier
-    const user = await User.findOne({ identifier });
+    const user = await db.collection('users').findOne({ identifier });
     
     if (!user) {
       return res.status(401).json({
@@ -155,7 +162,7 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // Check password using bcrypt (from your model)
+    // Check password using bcrypt
     const isPasswordValid = await bcrypt.compare(password, user.password);
     
     if (isPasswordValid && user.role === role) {
@@ -191,22 +198,25 @@ app.post("/api/students/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel, preferredAdvisorTypes } = req.body;
     
-    // In production, get user ID from JWT token
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOneAndUpdate(
-      { userId: userId },
+    const result = await db.collection('students').findOneAndUpdate(
+      { userId: new mongoose.Types.ObjectId(userId) },
       {
-        researchInterests,
-        careerGoals,
-        yearLevel,
-        preferredAdvisorTypes,
-        completedProfile: true
+        $set: {
+          researchInterests,
+          careerGoals,
+          yearLevel,
+          preferredAdvisorTypes,
+          completedProfile: true,
+          updatedAt: new Date()
+        }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
-    if (!studentProfile) {
+    if (!result.value) {
       return res.status(404).json({
         success: false,
         message: "Student profile not found"
@@ -215,7 +225,7 @@ app.post("/api/students/complete-profile", async (req, res) => {
 
     res.json({
       success: true,
-      student: studentProfile,
+      student: result.value,
       message: "Student profile completed successfully!"
     });
   } catch (error) {
@@ -230,10 +240,12 @@ app.post("/api/students/complete-profile", async (req, res) => {
 app.get("/api/students/profile", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOne({ userId: userId })
-      .populate('userId', 'name identifier');
-    
+    const studentProfile = await db.collection('students').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
     if (!studentProfile) {
       return res.status(404).json({
         success: false,
@@ -241,9 +253,16 @@ app.get("/api/students/profile", async (req, res) => {
       });
     }
 
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
     res.json({
       success: true,
-      student: studentProfile
+      student: {
+        ...studentProfile,
+        user: user ? { name: user.name, identifier: user.identifier } : null
+      }
     });
   } catch (error) {
     res.status(500).json({ 
@@ -257,10 +276,12 @@ app.get("/api/students/profile", async (req, res) => {
 app.get("/api/students/dashboard", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOne({ userId: userId })
-      .populate('userId', 'name');
-    
+    const studentProfile = await db.collection('students').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
     if (!studentProfile) {
       return res.status(404).json({
         success: false,
@@ -268,14 +289,35 @@ app.get("/api/students/dashboard", async (req, res) => {
       });
     }
 
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
     // Check if student has matches
-    const matches = await Match.find({ studentId: studentProfile._id })
-      .populate('advisorId')
-      .populate('advisorId.userId', 'name');
+    const matches = await db.collection('matches').find({ 
+      studentId: studentProfile._id 
+    }).toArray();
+
+    let matchedAdvisor = null;
+    if (matches.length > 0) {
+      const advisor = await db.collection('advisors').findOne({ 
+        _id: matches[0].advisorId 
+      });
+      const advisorUser = advisor ? await db.collection('users').findOne({ 
+        _id: advisor.userId 
+      }) : null;
+      
+      matchedAdvisor = {
+        name: advisorUser?.name,
+        researchAreas: advisor?.expertiseAreas,
+        email: advisor?.email,
+        department: advisor?.department
+      };
+    }
 
     res.json({
       profile: {
-        name: studentProfile.userId.name,
+        name: user?.name,
         completedProfile: studentProfile.completedProfile,
         researchInterests: studentProfile.researchInterests,
         careerGoals: studentProfile.careerGoals,
@@ -284,12 +326,7 @@ app.get("/api/students/dashboard", async (req, res) => {
       matchStatus: {
         hasMatched: matches.length > 0,
         matchDate: matches.length > 0 ? matches[0].timestamp : null,
-        matchedAdvisor: matches.length > 0 ? {
-          name: matches[0].advisorId.userId.name,
-          researchAreas: matches[0].advisorId.expertiseAreas,
-          email: matches[0].advisorId.email,
-          department: matches[0].advisorId.department
-        } : null
+        matchedAdvisor: matchedAdvisor
       },
       statistics: {
         totalMatches: matches.length,
@@ -303,123 +340,15 @@ app.get("/api/students/dashboard", async (req, res) => {
     });
   }
 });
+
 // ==================== ADVISOR ROUTES ====================
-// Add this route - it will handle both POST and GET for advisor profile
-app.post("/api/advisors/profile", async (req, res) => {
-  try {
-    const userId = req.headers.user_id || req.headers.authorization?.replace('Bearer jwt-token-', '') || "mock_user_id";
-    
-    console.log("🔍 Looking for advisor profile for user:", userId);
-    
-    const db = mongoose.connection.db;
-    
-    const advisorProfile = await db.collection('advisors').findOne({ 
-      userId: new mongoose.Types.ObjectId(userId) 
-    });
 
-    console.log("🔍 Found advisor profile:", advisorProfile ? "Yes" : "No");
-
-    if (!advisorProfile) {
-      return res.status(404).json({
-        success: false,
-        message: "Advisor profile not found"
-      });
-    }
-
-    // Also get user info
-    const user = await db.collection('users').findOne({ 
-      _id: new mongoose.Types.ObjectId(userId) 
-    });
-
-    res.json({
-      success: true,
-      advisor: {
-        ...advisorProfile,
-        user: user ? { name: user.name, identifier: user.identifier } : null
-      }
-    });
-  } catch (error) {
-    console.error("❌ Advisor profile error:", error);
-    res.status(500).json({ 
-      success: false,
-      message: "Server error: " + error.message 
-    });
-  }
-});
-
-// Also keep the GET version for compatibility
-app.get("/api/advisors/profile", async (req, res) => {
-  try {
-    const userId = req.headers.user_id || "mock_user_id";
-    
-    const db = mongoose.connection.db;
-    
-    const advisorProfile = await db.collection('advisors').findOne({ 
-      userId: new mongoose.Types.ObjectId(userId) 
-    });
-
-    if (!advisorProfile) {
-      return res.status(404).json({
-        success: false,
-        message: "Advisor profile not found"
-      });
-    }
-
-    const user = await db.collection('users').findOne({ 
-      _id: new mongoose.Types.ObjectId(userId) 
-    });
-
-    res.json({
-      success: true,
-      advisor: {
-        ...advisorProfile,
-        user: user ? { name: user.name, identifier: user.identifier } : null
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: "Server error: " + error.message 
-    });
-  }
-});
-// Debug route to check what's in database
-app.get("/api/debug-check", async (req, res) => {
-  try {
-    const db = mongoose.connection.db;
-    
-    const advisors = await db.collection('advisors').find().toArray();
-    const users = await db.collection('users').find().toArray();
-    
-    // Check if the specific user exists
-    const specificUser = await db.collection('users').findOne({ 
-      _id: new mongoose.Types.ObjectId("691d7e26e17ddbbe1c8bc290") 
-    });
-    
-    const specificAdvisor = await db.collection('advisors').findOne({ 
-      userId: new mongoose.Types.ObjectId("691d7e26e17ddbbe1c8bc290") 
-    });
-
-    res.json({
-      totalAdvisors: advisors.length,
-      totalUsers: users.length,
-      specificUserExists: !!specificUser,
-      specificAdvisorExists: !!specificAdvisor,
-      specificUser: specificUser,
-      specificAdvisor: specificAdvisor
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
 // Complete Advisor Profile
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
     const userId = req.headers.user_id || "mock_user_id";
-    
-    // Use direct MongoDB update instead of mongoose model
     const db = mongoose.connection.db;
     
     const result = await db.collection('advisors').findOneAndUpdate(
@@ -458,12 +387,10 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
   }
 });
 
-// Get Advisor Profile - CHANGED FROM GET TO POST
+// Get Advisor Profile - BOTH POST AND GET
 app.post("/api/advisors/profile", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
-    
-    // Use direct MongoDB find instead of mongoose
+    const userId = req.headers.user_id || req.headers.authorization?.replace('Bearer jwt-token-', '') || "mock_user_id";
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
@@ -477,7 +404,42 @@ app.post("/api/advisors/profile", async (req, res) => {
       });
     }
 
-    // Also get user info
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    res.json({
+      success: true,
+      advisor: {
+        ...advisorProfile,
+        user: user ? { name: user.name, identifier: user.identifier } : null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Also keep GET version for compatibility
+app.get("/api/advisors/profile", async (req, res) => {
+  try {
+    const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
     const user = await db.collection('users').findOne({ 
       _id: new mongoose.Types.ObjectId(userId) 
     });
@@ -501,7 +463,6 @@ app.post("/api/advisors/profile", async (req, res) => {
 app.get("/api/advisors/dashboard", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
-    
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
@@ -515,7 +476,6 @@ app.get("/api/advisors/dashboard", async (req, res) => {
       });
     }
 
-    // Get user info
     const user = await db.collection('users').findOne({ 
       _id: new mongoose.Types.ObjectId(userId) 
     });
@@ -570,114 +530,19 @@ app.get("/api/advisors/dashboard", async (req, res) => {
   }
 });
 
-// Debug route to check advisors in database
-app.get("/api/debug-advisors", async (req, res) => {
-  try {
-    const db = mongoose.connection.db;
-    const advisors = await db.collection('advisors').find().toArray();
-    const users = await db.collection('users').find().toArray();
-    
-    res.json({
-      advisors: advisors,
-      users: users,
-      totalAdvisors: advisors.length,
-      totalUsers: users.length
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
-// Get Advisor Profile
-app.get("/api/advisors/profile", async (req, res) => {
-  try {
-    const userId = req.headers.user_id || "mock_user_id";
-    
-    const advisorProfile = await Advisor.findOne({ userId: userId })
-      .populate('userId', 'name identifier');
-    
-    if (!advisorProfile) {
-      return res.status(404).json({
-        success: false,
-        message: "Advisor profile not found"
-      });
-    }
-
-    res.json({
-      success: true,
-      advisor: advisorProfile
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: "Server error: " + error.message 
-    });
-  }
-});
-
-// Advisor Dashboard
-app.get("/api/advisors/dashboard", async (req, res) => {
-  try {
-    const userId = req.headers.user_id || "mock_user_id";
-    
-    const advisorProfile = await Advisor.findOne({ userId: userId })
-      .populate('userId', 'name');
-    
-    if (!advisorProfile) {
-      return res.status(404).json({
-        success: false,
-        message: "Advisor profile not found"
-      });
-    }
-
-    // Get advisor's matches and students
-    const matches = await Match.find({ advisorId: advisorProfile._id })
-      .populate('studentId')
-      .populate('studentId.userId', 'name identifier');
-
-    const students = matches.map(match => ({
-      _id: match.studentId._id,
-      name: match.studentId.userId.name,
-      identifier: match.studentId.userId.identifier,
-      researchInterests: match.studentId.researchInterests,
-      yearLevel: match.studentId.yearLevel,
-      matchDate: match.timestamp,
-      status: match.status
-    }));
-
-    res.json({
-      profile: {
-        name: advisorProfile.userId.name,
-        researchAreas: advisorProfile.expertiseAreas,
-        completedProfile: advisorProfile.completedProfile,
-        department: advisorProfile.department,
-        bio: advisorProfile.bio
-      },
-      statistics: {
-        totalStudents: students.length,
-        availableSlots: Math.max(0, advisorProfile.maxStudents - students.length),
-        maxStudents: advisorProfile.maxStudents,
-        utilizationRate: advisorProfile.maxStudents > 0 ? 
-          Math.round((students.length / advisorProfile.maxStudents) * 100) : 0
-      },
-      students: students
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: "Server error: " + error.message 
-    });
-  }
-});
-
 // ==================== MATCHING ROUTES ====================
 
 // Find Match for Student
 app.post("/api/match/find-match", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
     // Get student profile
-    const student = await Student.findOne({ userId: userId });
+    const student = await db.collection('students').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+    
     if (!student || !student.completedProfile) {
       return res.status(400).json({
         success: false,
@@ -686,11 +551,11 @@ app.post("/api/match/find-match", async (req, res) => {
     }
 
     // Find compatible advisors
-    const advisors = await Advisor.find({
+    const advisors = await db.collection('advisors').find({
       completedProfile: true,
       expertiseAreas: { $in: student.researchInterests },
       availableSlots: { $gt: 0 }
-    }).populate('userId', 'name');
+    }).toArray();
 
     if (advisors.length === 0) {
       return res.json({
@@ -707,35 +572,47 @@ app.post("/api/match/find-match", async (req, res) => {
     // For now, pick the first compatible advisor
     const matchedAdvisor = advisors[0];
 
+    // Get advisor user info
+    const advisorUser = await db.collection('users').findOne({ 
+      _id: matchedAdvisor.userId 
+    });
+
     // Create match record
-    const newMatch = new Match({
+    const matchData = {
       studentId: student._id,
       advisorId: matchedAdvisor._id,
       matchReason: `Shared interests: ${student.researchInterests.filter(interest => 
         matchedAdvisor.expertiseAreas.includes(interest)
       ).join(', ')}`,
-      matchScore: 85, // Calculate based on shared interests
-      status: 'pending'
-    });
-    await newMatch.save();
+      matchScore: 85,
+      status: 'pending',
+      timestamp: new Date()
+    };
+    await db.collection('matches').insertOne(matchData);
 
     // Update advisor's available slots
-    await Advisor.findByIdAndUpdate(matchedAdvisor._id, {
-      $inc: { availableSlots: -1 }
-    });
+    await db.collection('advisors').updateOne(
+      { _id: matchedAdvisor._id },
+      { $inc: { availableSlots: -1 } }
+    );
 
     // Update student's match status
-    await Student.findByIdAndUpdate(student._id, {
-      hasMatched: true,
-      matchedAdvisor: matchedAdvisor._id,
-      matchDate: new Date()
-    });
+    await db.collection('students').updateOne(
+      { _id: student._id },
+      { 
+        $set: { 
+          hasMatched: true,
+          matchedAdvisor: matchedAdvisor._id,
+          matchDate: new Date()
+        }
+      }
+    );
 
     res.json({
       success: true,
       message: "Match found successfully!",
       matchedAdvisor: {
-        name: matchedAdvisor.userId.name,
+        name: advisorUser?.name,
         researchAreas: matchedAdvisor.expertiseAreas,
         email: matchedAdvisor.email,
         department: matchedAdvisor.department,
@@ -759,21 +636,31 @@ app.post("/api/match/find-match", async (req, res) => {
 // Get All Advisors (for student browsing)
 app.get("/api/advisors", async (req, res) => {
   try {
-    const advisors = await Advisor.find({ completedProfile: true })
-      .populate('userId', 'name')
-      .select('expertiseAreas department maxStudents availableSlots bio');
+    const db = mongoose.connection.db;
+    
+    const advisors = await db.collection('advisors').find({ 
+      completedProfile: true 
+    }).toArray();
 
-    res.json({
-      success: true,
-      advisors: advisors.map(advisor => ({
-        name: advisor.userId.name,
+    // Get user info for each advisor
+    const advisorsWithUsers = await Promise.all(advisors.map(async (advisor) => {
+      const user = await db.collection('users').findOne({ 
+        _id: advisor.userId 
+      });
+      return {
+        name: user?.name,
         researchAreas: advisor.expertiseAreas,
         department: advisor.department,
         availableSlots: advisor.availableSlots,
         maxCapacity: advisor.maxStudents,
         bio: advisor.bio,
         completedProfile: advisor.completedProfile
-      }))
+      };
+    }));
+
+    res.json({
+      success: true,
+      advisors: advisorsWithUsers
     });
   } catch (error) {
     res.status(500).json({ 
@@ -783,33 +670,61 @@ app.get("/api/advisors", async (req, res) => {
   }
 });
 
-// ==================== COMPATIBILITY ROUTES (for old frontend) ====================
+// ==================== DEBUG ROUTES ====================
 
-// Legacy routes for compatibility with existing frontend
+app.get("/api/debug-check", async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    
+    const advisors = await db.collection('advisors').find().toArray();
+    const users = await db.collection('users').find().toArray();
+    const students = await db.collection('students').find().toArray();
+    const matches = await db.collection('matches').find().toArray();
+
+    res.json({
+      totalAdvisors: advisors.length,
+      totalUsers: users.length,
+      totalStudents: students.length,
+      totalMatches: matches.length,
+      advisors: advisors,
+      users: users
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
+// ==================== COMPATIBILITY ROUTES ====================
+
+// Legacy routes for compatibility
 app.post("/api/match/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel } = req.body;
     
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOneAndUpdate(
-      { userId: userId },
+    const result = await db.collection('students').findOneAndUpdate(
+      { userId: new mongoose.Types.ObjectId(userId) },
       {
-        researchInterests: researchInterests,
-        careerGoals: careerGoals,
-        yearLevel: yearLevel,
-        completedProfile: true
+        $set: {
+          researchInterests: researchInterests,
+          careerGoals: careerGoals,
+          yearLevel: yearLevel,
+          completedProfile: true,
+          updatedAt: new Date()
+        }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     res.json({
       success: true,
       student: {
-        researchInterests: studentProfile.researchInterests,
-        careerGoals: studentProfile.careerGoals,
-        yearLevel: studentProfile.yearLevel,
-        completedProfile: studentProfile.completedProfile
+        researchInterests: result.value?.researchInterests,
+        careerGoals: result.value?.careerGoals,
+        yearLevel: result.value?.yearLevel,
+        completedProfile: result.value?.completedProfile
       },
       message: "Profile completed successfully!"
     });
@@ -825,8 +740,11 @@ app.post("/api/match/complete-profile", async (req, res) => {
 app.get("/api/match/student/profile", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOne({ userId: userId });
+    const studentProfile = await db.collection('students').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
     
     if (!studentProfile) {
       return res.json({
@@ -852,13 +770,36 @@ app.get("/api/match/student/profile", async (req, res) => {
 app.get("/api/match/student/dashboard", async (req, res) => {
   try {
     const userId = req.headers.user_id || "mock_user_id";
+    const db = mongoose.connection.db;
     
-    const studentProfile = await Student.findOne({ userId: userId })
-      .populate('userId', 'name');
+    const studentProfile = await db.collection('students').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
     
-    const matches = await Match.find({ 
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    const matches = await db.collection('matches').find({ 
       studentId: studentProfile?._id 
-    }).populate('advisorId');
+    }).toArray();
+
+    let matchedAdvisor = null;
+    if (matches.length > 0) {
+      const advisor = await db.collection('advisors').findOne({ 
+        _id: matches[0].advisorId 
+      });
+      const advisorUser = advisor ? await db.collection('users').findOne({ 
+        _id: advisor.userId 
+      }) : null;
+      
+      matchedAdvisor = {
+        name: advisorUser?.name || "Advisor",
+        researchAreas: advisor?.expertiseAreas || [],
+        email: advisor?.email || "",
+        department: advisor?.department || ""
+      };
+    }
 
     res.json({
       profile: {
@@ -870,42 +811,11 @@ app.get("/api/match/student/dashboard", async (req, res) => {
       matchStatus: {
         hasMatched: matches.length > 0,
         matchDate: matches.length > 0 ? matches[0].timestamp : null,
-        matchedAdvisor: matches.length > 0 ? {
-          name: matches[0].advisorId.userId?.name || "Advisor",
-          researchAreas: matches[0].advisorId.expertiseAreas || [],
-          email: matches[0].advisorId.email || "",
-          department: matches[0].advisorId.department || ""
-        } : null
+        matchedAdvisor: matchedAdvisor
       }
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
-  }
-});
-// test route to check if Advisor model works
-app.get("/api/test-advisor", async (req, res) => {
-  try {
-    const Advisor = require('./models/Advisor');
-    console.log("Advisor model:", Advisor);
-    
-    // Try to create a simple advisor
-    const testAdvisor = new Advisor({
-      userId: new mongoose.Types.ObjectId(),
-      name: "Test Advisor",
-      email: "test@test.com",
-      staffNumber: "TEST001"
-    });
-    
-    res.json({
-      success: true,
-      message: "Advisor model is working",
-      isConstructor: typeof Advisor === 'function'
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      message: "Advisor model error: " + error.message
-    });
   }
 });
 
