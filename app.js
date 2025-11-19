@@ -124,4 +124,175 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// Student profile completion
+app.post("/api/match/complete-profile", async (req, res) => {
+  try {
+    const { researchInterests, careerGoals, yearLevel } = req.body;
+    console.log("Student profile completion:", { researchInterests, careerGoals, yearLevel });
+    
+    res.json({
+      success: true,
+      student: {
+        researchInterests,
+        careerGoals, 
+        yearLevel,
+        completedProfile: true
+      },
+      message: "Profile completed successfully!"
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Advisor profile completion  
+app.post("/api/advisors/profile", async (req, res) => {
+  try {
+    const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
+    console.log("Advisor profile completion:", { researchInterests, expertiseAreas, maxStudents, availableSlots });
+    
+    res.json({
+      success: true,
+      advisor: {
+        researchInterests,
+        expertiseAreas,
+        maxStudents, 
+        availableSlots,
+        bio,
+        completedProfile: true
+      },
+      message: "Advisor profile completed successfully!"
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Get advisor profile
+app.get("/api/advisors/me", async (req, res) => {
+  try {
+    res.json({
+      researchInterests: [],
+      expertiseAreas: [],
+      maxStudents: 5,
+      availableSlots: 5,
+      bio: "",
+      completedProfile: false
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get advisor dashboard
+app.get("/api/advisors/dashboard", async (req, res) => {
+  try {
+    res.json({
+      profile: {
+        name: "Test Advisor",
+        researchAreas: ["AI", "Machine Learning"],
+        completedProfile: true
+      },
+      statistics: {
+        totalStudents: 0,
+        availableSlots: 5,
+        maxStudents: 5,
+        utilizationRate: 0
+      },
+      students: []
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Student dashboard
+app.get("/api/match/student/dashboard", async (req, res) => {
+  try {
+    res.json({
+      profile: {
+        completedProfile: true,
+        researchInterests: ["AI", "Machine Learning"],
+        careerGoals: ["Software Developer", "Data Scientist"],
+        yearLevel: "Year 3"
+      },
+      matchStatus: {
+        hasMatched: false,
+        matchDate: null,
+        matchedAdvisor: null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get student profile
+app.get("/api/match/student/profile", async (req, res) => {
+  try {
+    res.json({
+      researchInterests: [],
+      careerGoals: [],
+      yearLevel: "",
+      completedProfile: false
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Find match
+app.post("/api/match/find-match", async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: "Match found successfully!",
+      matchedAdvisor: {
+        name: "Dr. Sarah Johnson",
+        researchAreas: ["AI", "Machine Learning", "Data Science"],
+        email: "sarah.johnson@university.edu",
+        department: "Computer Science"
+      },
+      matchDetails: {
+        sharedInterests: ["AI", "Machine Learning"]
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Matching failed: " + error.message 
+    });
+  }
+});
+
+// Get all advisors
+app.get("/api/match/all-advisors", async (req, res) => {
+  try {
+    res.json({
+      advisors: [
+        {
+          name: "Dr. Sarah Johnson",
+          researchAreas: ["AI", "Machine Learning", "Data Science"],
+          availableSlots: 3,
+          completedProfile: true
+        },
+        {
+          name: "Prof. Michael Chen", 
+          researchAreas: ["Software Engineering", "Web Development"],
+          availableSlots: 2,
+          completedProfile: true
+        }
+      ]
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 module.exports = app;
