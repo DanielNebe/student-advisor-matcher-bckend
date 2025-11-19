@@ -139,7 +139,7 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// User Login - USING YOUR MODELS
+// User Login
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { identifier, password, role } = req.body;
@@ -186,7 +186,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 // ==================== STUDENT ROUTES ====================
 
-// Complete Student Profile - USING YOUR MODELS
+// Complete Student Profile
 app.post("/api/students/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel, preferredAdvisorTypes } = req.body;
@@ -306,26 +306,44 @@ app.get("/api/students/dashboard", async (req, res) => {
 
 // ==================== ADVISOR ROUTES ====================
 
-// Complete Advisor Profile - USING YOUR MODELS
+// Complete Advisor Profile 
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
     const userId = req.headers.user_id || "mock_user_id";
     
-    const advisorProfile = await Advisor.findOneAndUpdate(
-      { userId: userId },
+    // Use direct MongoDB update instead of mongoose model
+    const db = mongoose.connection.db;
+    
+    const result = await db.collection('advisors').findOneAndUpdate(
+      { userId: new mongoose.Types.ObjectId(userId) },
       {
-        researchInterests,
-        expertiseAreas,
-        maxStudents,
-        availableSlots,
-        bio,
-        completedProfile: true
+        $set: {
+          researchInterests,
+          expertiseAreas,
+          maxStudents,
+          availableSlots,
+          bio,
+          completedProfile: true,
+          updatedAt: new Date()
+        }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
+    if (!result.value) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      advisor: result.value,
+      message: "Advisor profile completed successfully!"
+    });
     if (!advisorProfile) {
       return res.status(404).json({
         success: false,
