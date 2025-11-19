@@ -92,25 +92,31 @@ app.post("/api/auth/register", async (req, res) => {
       console.log("✅ Student profile created");
 
       } else if (role === 'advisor') {
-      // Import Advisor inside the function
-      const Advisor = require('./models/Advisor');
-      const advisorProfile = new Advisor({
-        userId: newUser._id,
-        name: name,
-        email: identifier, // Using identifier as email
-        staffNumber: identifier,
-        researchInterests: [],
-        expertiseAreas: [],
-        maxStudents: 5,
-        availableSlots: 5,
-        bio: "",
-        completedProfile: false,
-        matchedStudents: []
-      });
-      await advisorProfile.save();
-      console.log("✅ Advisor profile created");
-    }
-
+  // Get the database connection
+  const db = mongoose.connection.db;
+  
+  // Create advisor document directly
+  const advisorData = {
+    userId: newUser._id,
+    name: name,
+    email: identifier,
+    staffNumber: identifier,
+    researchInterests: [],
+    expertiseAreas: [],
+    department: "Computer Science",
+    maxStudents: 5,
+    availableSlots: 5,
+    bio: "",
+    completedProfile: false,
+    matchedStudents: [],
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  
+  // Insert directly into advisors collection
+  await db.collection('advisors').insertOne(advisorData);
+  console.log("✅ Advisor profile created (direct insert)");
+}
     // Return success
     res.json({
       success: true,
