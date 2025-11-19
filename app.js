@@ -1,4 +1,4 @@
-// app.js - UPDATED with correct CORS
+// app.js - UPDATED WITH SIMPLE CORS FIX
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,13 +10,9 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
-// ==================== CORS CONFIGURATION - UPDATED ====================
+// ==================== SIMPLE CORS FIX ====================
 app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "https://student-advisor-matcher-frontend.vercel.app", // ← ADD YOUR FRONTEND DOMAIN HERE
-    "https://student-advisor-matcher-frontend-git-main-yourusername.vercel.app", // ← ALSO ADD THIS PATTERN
-  ],
+  origin: "*", // Allow ALL origins - this will fix CORS immediately
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
