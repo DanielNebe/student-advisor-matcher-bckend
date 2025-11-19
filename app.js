@@ -304,7 +304,114 @@ app.get("/api/students/dashboard", async (req, res) => {
   }
 });
 // ==================== ADVISOR ROUTES ====================
+// Add this route - it will handle both POST and GET for advisor profile
+app.post("/api/advisors/profile", async (req, res) => {
+  try {
+    const userId = req.headers.user_id || req.headers.authorization?.replace('Bearer jwt-token-', '') || "mock_user_id";
+    
+    console.log("🔍 Looking for advisor profile for user:", userId);
+    
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
 
+    console.log("🔍 Found advisor profile:", advisorProfile ? "Yes" : "No");
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
+    // Also get user info
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    res.json({
+      success: true,
+      advisor: {
+        ...advisorProfile,
+        user: user ? { name: user.name, identifier: user.identifier } : null
+      }
+    });
+  } catch (error) {
+    console.error("❌ Advisor profile error:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// Also keep the GET version for compatibility
+app.get("/api/advisors/profile", async (req, res) => {
+  try {
+    const userId = req.headers.user_id || "mock_user_id";
+    
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    res.json({
+      success: true,
+      advisor: {
+        ...advisorProfile,
+        user: user ? { name: user.name, identifier: user.identifier } : null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+// Debug route to check what's in database
+app.get("/api/debug-check", async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    
+    const advisors = await db.collection('advisors').find().toArray();
+    const users = await db.collection('users').find().toArray();
+    
+    // Check if the specific user exists
+    const specificUser = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId("691d7e26e17ddbbe1c8bc290") 
+    });
+    
+    const specificAdvisor = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId("691d7e26e17ddbbe1c8bc290") 
+    });
+
+    res.json({
+      totalAdvisors: advisors.length,
+      totalUsers: users.length,
+      specificUserExists: !!specificUser,
+      specificAdvisorExists: !!specificAdvisor,
+      specificUser: specificUser,
+      specificAdvisor: specificAdvisor
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
 // Complete Advisor Profile
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
