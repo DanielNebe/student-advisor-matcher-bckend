@@ -20,9 +20,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 // Import YOUR models
 const User = require('./models/User');
-const Student = require('./models/Student');
-// Remove Advisor import - we'll use direct MongoDB
-// Remove Match import - we'll use direct MongoDB
 
 // Basic routes
 app.get("/", (req, res) => {
@@ -82,7 +79,7 @@ app.post("/api/auth/register", async (req, res) => {
     };
 
     const userResult = await db.collection('users').insertOne(userData);
-    const newUser = userResult.ops ? userResult.ops[0] : { _id: userResult.insertedId };
+    const newUser = { _id: userResult.insertedId, ...userData };
     console.log("✅ User created:", newUser._id);
 
     // Create role-specific profile
@@ -198,7 +195,17 @@ app.post("/api/students/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel, preferredAdvisorTypes } = req.body;
     
-    const userId = req.headers.user_id || "mock_user_id";
+    // Get user ID from token
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const result = await db.collection('students').findOneAndUpdate(
@@ -239,7 +246,16 @@ app.post("/api/students/complete-profile", async (req, res) => {
 // Get Student Profile
 app.get("/api/students/profile", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const studentProfile = await db.collection('students').findOne({ 
@@ -275,7 +291,16 @@ app.get("/api/students/profile", async (req, res) => {
 // Student Dashboard
 app.get("/api/students/dashboard", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const studentProfile = await db.collection('students').findOne({ 
@@ -348,7 +373,16 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const result = await db.collection('advisors').findOneAndUpdate(
@@ -390,7 +424,16 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
 // Get Advisor Profile - BOTH POST AND GET
 app.post("/api/advisors/profile", async (req, res) => {
   try {
-    const userId = req.headers.user_id || req.headers.authorization?.replace('Bearer jwt-token-', '') || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
@@ -426,7 +469,16 @@ app.post("/api/advisors/profile", async (req, res) => {
 // Also keep GET version for compatibility
 app.get("/api/advisors/profile", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
@@ -462,7 +514,16 @@ app.get("/api/advisors/profile", async (req, res) => {
 // Advisor Dashboard
 app.get("/api/advisors/dashboard", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
@@ -535,7 +596,16 @@ app.get("/api/advisors/dashboard", async (req, res) => {
 // Find Match for Student
 app.post("/api/match/find-match", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     // Get student profile
@@ -670,38 +740,23 @@ app.get("/api/advisors", async (req, res) => {
   }
 });
 
-// ==================== DEBUG ROUTES ====================
-
-app.get("/api/debug-check", async (req, res) => {
-  try {
-    const db = mongoose.connection.db;
-    
-    const advisors = await db.collection('advisors').find().toArray();
-    const users = await db.collection('users').find().toArray();
-    const students = await db.collection('students').find().toArray();
-    const matches = await db.collection('matches').find().toArray();
-
-    res.json({
-      totalAdvisors: advisors.length,
-      totalUsers: users.length,
-      totalStudents: students.length,
-      totalMatches: matches.length,
-      advisors: advisors,
-      users: users
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
-
 // ==================== COMPATIBILITY ROUTES ====================
 
-// Legacy routes for compatibility
+// Legacy routes for compatibility with frontend
 app.post("/api/match/complete-profile", async (req, res) => {
   try {
     const { researchInterests, careerGoals, yearLevel } = req.body;
     
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const result = await db.collection('students').findOneAndUpdate(
@@ -739,7 +794,16 @@ app.post("/api/match/complete-profile", async (req, res) => {
 // Legacy student profile route
 app.get("/api/match/student/profile", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const studentProfile = await db.collection('students').findOne({ 
@@ -769,7 +833,16 @@ app.get("/api/match/student/profile", async (req, res) => {
 // Legacy student dashboard route
 app.get("/api/match/student/dashboard", async (req, res) => {
   try {
-    const userId = req.headers.user_id || "mock_user_id";
+    const authHeader = req.headers.authorization;
+    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
     const db = mongoose.connection.db;
     
     const studentProfile = await db.collection('students').findOne({ 
@@ -816,6 +889,30 @@ app.get("/api/match/student/dashboard", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== DEBUG ROUTES ====================
+
+app.get("/api/debug-check", async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    
+    const advisors = await db.collection('advisors').find().toArray();
+    const users = await db.collection('users').find().toArray();
+    const students = await db.collection('students').find().toArray();
+    const matches = await db.collection('matches').find().toArray();
+
+    res.json({
+      totalAdvisors: advisors.length,
+      totalUsers: users.length,
+      totalStudents: students.length,
+      totalMatches: matches.length,
+      advisors: advisors,
+      users: users
+    });
+  } catch (error) {
+    res.json({ error: error.message });
   }
 });
 
