@@ -44,4 +44,52 @@ app.get("/test", (req, res) => {
 
 console.log("🔧 Routes initialized");
 
+// Add proper registration route
+const User = require('./models/User'); // Make sure this model exists
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { name, identifier, password, role } = req.body;
+    console.log("Registration attempt:", { name, identifier, role });
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ identifier });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false,
+        message: "User already exists with this registration number" 
+      });
+    }
+    
+    // Create new user (you'll need proper password hashing)
+    const newUser = new User({
+      name,
+      identifier, 
+      password, // You should hash this!
+      role
+    });
+    
+    await newUser.save();
+    
+    // Return success
+    res.json({
+      success: true,
+      token: "real-token-" + Date.now(), // You should use JWT here
+      user: { 
+        name, 
+        identifier, 
+        role,
+        id: newUser._id
+      },
+      message: "Registration successful!"
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Server error during registration" 
+    });
+  }
+});
+
 module.exports = app;
