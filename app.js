@@ -21,7 +21,7 @@ mongoose.connect(process.env.MONGO_URI)
 // Import YOUR models
 const User = require('./models/User');
 const Student = require('./models/Student');
-const Advisor = require('./models/Advisor');
+
 const Match = require('./models/Match');
 
 // Basic routes
@@ -90,8 +90,10 @@ app.post("/api/auth/register", async (req, res) => {
       });
       await studentProfile.save();
       console.log("✅ Student profile created");
-      
-    } else if (role === 'advisor') {
+
+      } else if (role === 'advisor') {
+      // Import Advisor inside the function
+      const Advisor = require('./models/Advisor');
       const advisorProfile = new Advisor({
         userId: newUser._id,
         name: name,
@@ -631,6 +633,32 @@ app.get("/api/match/student/dashboard", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
+  }
+});
+// test route to check if Advisor model works
+app.get("/api/test-advisor", async (req, res) => {
+  try {
+    const Advisor = require('./models/Advisor');
+    console.log("Advisor model:", Advisor);
+    
+    // Try to create a simple advisor
+    const testAdvisor = new Advisor({
+      userId: new mongoose.Types.ObjectId(),
+      name: "Test Advisor",
+      email: "test@test.com",
+      staffNumber: "TEST001"
+    });
+    
+    res.json({
+      success: true,
+      message: "Advisor model is working",
+      isConstructor: typeof Advisor === 'function'
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      message: "Advisor model error: " + error.message
+    });
   }
 });
 
