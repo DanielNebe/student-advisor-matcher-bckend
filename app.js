@@ -91,5 +91,37 @@ app.post("/api/auth/register", async (req, res) => {
     });
   }
 });
+// Login route
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { identifier, password, role } = req.body;
+    console.log("Login attempt:", { identifier, role });
+    
+    // Simple login logic (you'll need proper authentication later)
+    if (password === "password123") { // Temporary check
+      res.json({
+        success: true,
+        token: "login-token-" + Date.now(),
+        user: { 
+          name: "Test User", 
+          identifier, 
+          role,
+          id: Date.now().toString()
+        },
+        message: "Login successful!"
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: "Server error during login" 
+    });
+  }
+});
 
 module.exports = app;
