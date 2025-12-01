@@ -368,13 +368,24 @@ app.get("/api/students/dashboard", async (req, res) => {
 
 // ==================== ADVISOR ROUTES ====================
 
-// Complete Advisor Profile
+// Complete Advisor Profile - FIXED VERSION
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
+    console.log("📝 Advisor complete-profile request received");
+    console.log("📝 Request body:", req.body);
+    
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
+    // Get user ID from token
     const authHeader = req.headers.authorization;
-    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header required"
+      });
+    }
+    
+    const userId = authHeader.replace('Bearer jwt-token-', '');
     
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
@@ -383,37 +394,69 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
       });
     }
     
+    console.log("📝 User ID:", userId);
+    
     const db = mongoose.connection.db;
+    
+    // Check if advisor profile exists
+    const existingAdvisor = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+    
+    if (!existingAdvisor) {
+      console.log("❌ Advisor profile not found for user:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found. Please register as an advisor first."
+      });
+    }
+    
+    console.log("📝 Existing advisor found:", existingAdvisor._id);
+    
+    // Format data properly
+    const formattedResearchInterests = Array.isArray(researchInterests) 
+      ? researchInterests 
+      : (researchInterests ? [researchInterests] : []);
+    
+    const formattedExpertiseAreas = Array.isArray(expertiseAreas) 
+      ? expertiseAreas 
+      : (expertiseAreas ? [expertiseAreas] : []);
+    
+    const updateData = {
+      researchInterests: formattedResearchInterests,
+      expertiseAreas: formattedExpertiseAreas,
+      maxStudents: parseInt(maxStudents) || 5,
+      availableSlots: parseInt(availableSlots) || 5,
+      bio: bio || "",
+      completedProfile: true,
+      updatedAt: new Date()
+    };
+    
+    console.log("📝 Update data:", updateData);
     
     const result = await db.collection('advisors').findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
-      {
-        $set: {
-          researchInterests,
-          expertiseAreas,
-          maxStudents,
-          availableSlots,
-          bio,
-          completedProfile: true,
-          updatedAt: new Date()
-        }
-      },
+      { $set: updateData },
       { returnDocument: 'after' }
     );
 
     if (!result.value) {
-      return res.status(404).json({
+      console.log("❌ Update failed - no result");
+      return res.status(500).json({
         success: false,
-        message: "Advisor profile not found"
+        message: "Failed to update advisor profile"
       });
     }
 
+    console.log("✅ Advisor profile updated successfully");
+    
     res.json({
       success: true,
       advisor: result.value,
       message: "Advisor profile completed successfully!"
     });
   } catch (error) {
+    console.error("❌ Advisor profile error:", error);
     res.status(500).json({ 
       success: false,
       message: "Server error: " + error.message 
@@ -421,11 +464,18 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
   }
 });
 
-// Get Advisor Profile - BOTH POST AND GET
+// Get Advisor Profile - POST version
 app.post("/api/advisors/profile", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header required"
+      });
+    }
+    
+    const userId = authHeader.replace('Bearer jwt-token-', '');
     
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
@@ -466,7 +516,7 @@ app.post("/api/advisors/profile", async (req, res) => {
   }
 });
 
-// Also keep GET version for compatibility
+// Get Advisor Profile - GET version
 app.get("/api/advisors/profile", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -511,11 +561,20 @@ app.get("/api/advisors/profile", async (req, res) => {
   }
 });
 
-// Advisor Dashboard
+// Advisor Dashboard - FIXED VERSION
 app.get("/api/advisors/dashboard", async (req, res) => {
   try {
+    console.log("📊 Advisor dashboard request received");
+    
     const authHeader = req.headers.authorization;
-    const userId = authHeader ? authHeader.replace('Bearer jwt-token-', '') : null;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header required"
+      });
+    }
+    
+    const userId = authHeader.replace('Bearer jwt-token-', '');
     
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
@@ -524,12 +583,16 @@ app.get("/api/advisors/dashboard", async (req, res) => {
       });
     }
     
+    console.log("📊 Loading dashboard for user:", userId);
+    
     const db = mongoose.connection.db;
     
     const advisorProfile = await db.collection('advisors').findOne({ 
       userId: new mongoose.Types.ObjectId(userId) 
     });
 
+    console.log("📊 Advisor profile found:", advisorProfile ? "Yes" : "No");
+    
     if (!advisorProfile) {
       return res.status(404).json({
         success: false,
@@ -546,6 +609,8 @@ app.get("/api/advisors/dashboard", async (req, res) => {
       advisorId: advisorProfile._id 
     }).toArray();
 
+    console.log("📊 Matches found:", matches.length);
+
     // Get student details for each match
     const students = await Promise.all(matches.map(async (match) => {
       const student = await db.collection('students').findOne({ 
@@ -557,33 +622,42 @@ app.get("/api/advisors/dashboard", async (req, res) => {
       
       return {
         _id: student?._id,
-        name: studentUser?.name,
-        identifier: studentUser?.identifier,
-        researchInterests: student?.researchInterests,
-        yearLevel: student?.yearLevel,
-        matchDate: match.timestamp,
-        status: match.status
+        name: studentUser?.name || "Student",
+        identifier: studentUser?.identifier || "N/A",
+        researchInterests: student?.researchInterests || [],
+        yearLevel: student?.yearLevel || "",
+        matchDate: match.timestamp || new Date(),
+        status: match.status || "pending"
       };
     }));
 
-    res.json({
+    console.log("📊 Students prepared:", students.length);
+
+    // Ensure we always return valid data
+    const dashboardData = {
       profile: {
-        name: user?.name,
-        researchAreas: advisorProfile.expertiseAreas,
-        completedProfile: advisorProfile.completedProfile,
-        department: advisorProfile.department,
-        bio: advisorProfile.bio
+        name: user?.name || "Advisor",
+        researchAreas: advisorProfile.expertiseAreas || [],
+        completedProfile: advisorProfile.completedProfile || false,
+        department: advisorProfile.department || "Computer Science",
+        bio: advisorProfile.bio || ""
       },
       statistics: {
         totalStudents: students.length,
-        availableSlots: Math.max(0, advisorProfile.maxStudents - students.length),
-        maxStudents: advisorProfile.maxStudents,
-        utilizationRate: advisorProfile.maxStudents > 0 ? 
-          Math.round((students.length / advisorProfile.maxStudents) * 100) : 0
+        availableSlots: Math.max(0, (advisorProfile.maxStudents || 5) - students.length),
+        maxStudents: advisorProfile.maxStudents || 5,
+        utilizationRate: (advisorProfile.maxStudents || 5) > 0 ? 
+          Math.round((students.length / (advisorProfile.maxStudents || 5)) * 100) : 0
       },
       students: students
-    });
+    };
+    
+    console.log("📊 Sending dashboard data");
+    console.log("📊 Profile data:", dashboardData.profile);
+    
+    res.json(dashboardData);
   } catch (error) {
+    console.error("❌ Advisor dashboard error:", error);
     res.status(500).json({ 
       success: false,
       message: "Server error: " + error.message 
