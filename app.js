@@ -371,30 +371,43 @@ app.get("/api/students/dashboard", async (req, res) => {
 // Complete Advisor Profile - FIXED VERSION
 app.post("/api/advisors/complete-profile", async (req, res) => {
   try {
-    console.log("📝 Advisor complete-profile request received");
-    console.log("📝 Request body:", req.body);
+    console.log("📝 Advisor complete-profile called");
+    console.log("📝 Body:", req.body);
     
     const { researchInterests, expertiseAreas, maxStudents, availableSlots, bio } = req.body;
     
     // Get user ID from token
     const authHeader = req.headers.authorization;
     if (!authHeader) {
+      console.log("❌ No authorization header");
       return res.status(401).json({
         success: false,
         message: "Authorization header required"
       });
     }
     
-    const userId = authHeader.replace('Bearer jwt-token-', '');
+    // Extract user ID from token
+    let userId;
+    if (authHeader.startsWith('Bearer jwt-token-')) {
+      userId = authHeader.replace('Bearer jwt-token-', '');
+    } else {
+      console.log("❌ Invalid token format");
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token format"
+      });
+    }
     
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    console.log("📝 User ID:", userId);
+    
+    // Check if it's a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      console.log("❌ Invalid ObjectId:", userId);
       return res.status(400).json({
         success: false,
         message: "Invalid user ID format"
       });
     }
-    
-    console.log("📝 User ID:", userId);
     
     const db = mongoose.connection.db;
     
@@ -404,27 +417,19 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
     });
     
     if (!existingAdvisor) {
-      console.log("❌ Advisor profile not found for user:", userId);
+      console.log("❌ No advisor profile found for user:", userId);
       return res.status(404).json({
         success: false,
         message: "Advisor profile not found. Please register as an advisor first."
       });
     }
     
-    console.log("📝 Existing advisor found:", existingAdvisor._id);
+    console.log("✅ Found existing advisor:", existingAdvisor._id);
     
-    // Format data properly
-    const formattedResearchInterests = Array.isArray(researchInterests) 
-      ? researchInterests 
-      : (researchInterests ? [researchInterests] : []);
-    
-    const formattedExpertiseAreas = Array.isArray(expertiseAreas) 
-      ? expertiseAreas 
-      : (expertiseAreas ? [expertiseAreas] : []);
-    
+    // Prepare update data
     const updateData = {
-      researchInterests: formattedResearchInterests,
-      expertiseAreas: formattedExpertiseAreas,
+      researchInterests: Array.isArray(researchInterests) ? researchInterests : [],
+      expertiseAreas: Array.isArray(expertiseAreas) ? expertiseAreas : [],
       maxStudents: parseInt(maxStudents) || 5,
       availableSlots: parseInt(availableSlots) || 5,
       bio: bio || "",
@@ -434,29 +439,45 @@ app.post("/api/advisors/complete-profile", async (req, res) => {
     
     console.log("📝 Update data:", updateData);
     
-    const result = await db.collection('advisors').findOneAndUpdate(
+    // Use updateOne + findOne instead of findOneAndUpdate
+    const updateResult = await db.collection('advisors').updateOne(
       { userId: new mongoose.Types.ObjectId(userId) },
-      { $set: updateData },
-      { returnDocument: 'after' }
+      { $set: updateData }
     );
-
-    if (!result.value) {
-      console.log("❌ Update failed - no result");
+    
+    console.log("✅ Update result:", updateResult);
+    
+    if (updateResult.modifiedCount === 0 && updateResult.matchedCount === 0) {
+      console.log("❌ No document was updated");
       return res.status(500).json({
         success: false,
         message: "Failed to update advisor profile"
       });
     }
-
-    console.log("✅ Advisor profile updated successfully");
+    
+    // Get the updated document
+    const updatedAdvisor = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+    
+    console.log("✅ Updated advisor retrieved:", updatedAdvisor ? "Yes" : "No");
+    
+    if (!updatedAdvisor) {
+      console.log("❌ Could not retrieve updated advisor");
+      return res.status(500).json({
+        success: false,
+        message: "Profile updated but could not retrieve updated data"
+      });
+    }
     
     res.json({
       success: true,
-      advisor: result.value,
+      advisor: updatedAdvisor,
       message: "Advisor profile completed successfully!"
     });
   } catch (error) {
     console.error("❌ Advisor profile error:", error);
+    console.error("❌ Error stack:", error.stack);
     res.status(500).json({ 
       success: false,
       message: "Server error: " + error.message 
@@ -664,7 +685,6 @@ app.get("/api/advisors/dashboard", async (req, res) => {
     });
   }
 });
-
 // ==================== MATCHING ROUTES ====================
 
 // Find Match for Student
