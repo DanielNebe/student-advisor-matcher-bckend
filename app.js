@@ -966,6 +966,61 @@ app.get("/api/match/student/dashboard", async (req, res) => {
   }
 });
 
+// ==================== COMPATIBILITY ROUTE ====================
+
+// Temporary route for compatibility with frontend
+app.get("/api/advisors/me", async (req, res) => {
+  try {
+    console.log("⚠️ /api/advisors/me called - using compatibility route");
+    
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header required"
+      });
+    }
+    
+    const userId = authHeader.replace('Bearer jwt-token-', '');
+    
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
+    const db = mongoose.connection.db;
+    
+    const advisorProfile = await db.collection('advisors').findOne({ 
+      userId: new mongoose.Types.ObjectId(userId) 
+    });
+
+    if (!advisorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: "Advisor profile not found"
+      });
+    }
+
+    const user = await db.collection('users').findOne({ 
+      _id: new mongoose.Types.ObjectId(userId) 
+    });
+
+    res.json({
+      ...advisorProfile,
+      user: user ? { name: user.name, identifier: user.identifier } : null,
+      completedProfile: advisorProfile.completedProfile || false
+    });
+  } catch (error) {
+    console.error("❌ /api/advisors/me error:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
 // ==================== DEBUG ROUTES ====================
 
 app.get("/api/debug-check", async (req, res) => {
